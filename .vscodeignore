@@ -7,3 +7,4 @@ PUBLICAR.md
 *.vsix
 .github/**
 images/*.svg
+.claude/**
