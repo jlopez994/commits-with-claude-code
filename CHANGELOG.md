@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Splitting works in a repository with no commits yet, and Undo leaves it without commits again.
+- Files whose names git quotes (with `"`, `\` or control characters) are split correctly.
+- On Windows, finds and runs a `claude.cmd` installed with npm.
+- `claude -p` runs without your hooks, so they no longer change the generated messages.
+- Icon.
+
 ## 0.1.0
 
 - Generate the commit message from staged changes (or all changes) with `claude -p`.
