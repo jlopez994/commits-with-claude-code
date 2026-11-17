@@ -10,7 +10,7 @@ Lo que esta en el Marketplace es **publico**.
 2. Politica de Trusted Publishing (ver abajo). Los PAT globales de Azure DevOps dejan de valer el 2026-12-01.
 3. Repositorio publico: <https://github.com/jlopez994/commits-with-claude-code>, ya en `package.json` (`repository`, `bugs`,
    `homepage`).
-4. Opcional: icono PNG de 128x128 en `images/icon.png` y `"icon": "images/icon.png"` en `package.json`.
+4. Icono: `images/icon.svg` es la fuente; `images/icon.png` (256 px) se rasteriza de ahi.
 
 ## Cada version
 
@@ -24,7 +24,10 @@ environment `marketplace` del repo solo admite tags `v*`.
 
 A mano (Node 22 o superior): `npx vsce package` y subir el VSIX en la pagina del editor.
 
-Open VSX (opcional): `npx ovsx publish -p <token-open-vsx>`.
+Open VSX (Cursor, VSCodium): el mismo job publica alli si existe el secret `OVSX_PAT` del environment `marketplace`. Una vez:
+cuenta en <https://open-vsx.org> con GitHub, firmar el Publisher Agreement, crear un token en Settings > Access Tokens,
+`npx ovsx create-namespace jlopez -p <token>` y
+`gh secret set OVSX_PAT --env marketplace -R jlopez994/commits-with-claude-code`.
 
 ## Tenerla en todos los VS Code
 
