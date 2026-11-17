@@ -32,8 +32,7 @@ function ejecutar(cmd, args, opts) {
   return new Promise((resolve, reject) => {
     let proc;
     try {
-      const w = process.platform === 'win32' ? comandoWindows(cmd, args) : { cmd, args, shell: false };
-      proc = cp.spawn(w.cmd, w.args, { cwd: opts.cwd, windowsHide: true, shell: w.shell });
+      proc = cp.spawn(cmd, args, { cwd: opts.cwd, windowsHide: true });
     } catch (e) {
       reject(e);
       return;
@@ -74,20 +73,6 @@ function ejecutar(cmd, args, opts) {
       proc.stdin.end();
     }
   });
-}
-
-/**
- * Node no lanza un .cmd/.bat sin shell (claude instalado con npm); con shell cmd.exe parte por espacios y expande %VAR%
- * @param 'cmd
- * @param 'args
- * @returns { cmd, args, shell }
- */
-function comandoWindows(cmd, args) {
-  if (!/\.(cmd|bat)$/i.test(cmd)) { return { cmd, args, shell: false }; }
-  const malo = [cmd, ...args].find(a => /["%\r\n]/.test(a));
-  if (malo !== undefined) { throw new Error(t('Cannot pass {0} to {1}: it contains " or %', malo, path.basename(cmd))); }
-  const citar = a => `"${a}"`;
-  return { cmd: citar(cmd), args: args.map(citar), shell: true };
 }
 
 function git(raiz, args, opts) {
@@ -300,6 +285,25 @@ function promptDivision(ctx, unidades, extra, porFichero) {
   return texto;
 }
 
+/**
+ * Node no lanza un .cmd sin shell: del shim que crea npm (cmd-shim) se saca su destino para lanzarlo directamente
+ * @param 'rutaCmd
+ * @param 'contenido texto del .cmd
+ * @returns { cmd, args } con args los que van antes de los de claude
+ */
+function desdeShimNpm(rutaCmd, contenido) {
+  const destinos = [...contenido.matchAll(/"%dp0%\\([^"]+)"/g)].map(m => m[1]).filter(d => !/(^|\\)node\.exe$/i.test(d));
+  if (!destinos.length) { throw new Error(t('Cannot run {0}: set claudeCommit.claudePath to the claude executable', rutaCmd)); }
+  const destino = path.win32.join(path.win32.dirname(rutaCmd), destinos[destinos.length - 1]);
+  return /\.js$/i.test(destino) ? { cmd: 'node', args: [destino] } : { cmd: destino, args: [] };
+}
+
+function comandoClaude(configurada) {
+  const ruta = rutaClaude(configurada);
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(ruta)) { return desdeShimNpm(ruta, fs.readFileSync(ruta, 'utf8')); }
+  return { cmd: ruta, args: [] };
+}
+
 function rutaClaude(configurada) {
   if (configurada && configurada !== 'claude') { return configurada; }
   const win = process.platform === 'win32';
@@ -324,7 +328,8 @@ function rutaClaude(configurada) {
 function llamarClaude(opts) {
   const args = ['-p', 'Follow the instructions given on standard input.', '--model', opts.modelo,
     '--tools', '', '--strict-mcp-config', '--settings', path.join(__dirname, 'claude-settings.json')];
-  return ejecutar(rutaClaude(opts.ruta), args, { cwd: opts.cwd, input: opts.entrada, signal: opts.signal, timeoutMs: opts.timeoutMs });
+  const c = comandoClaude(opts.ruta);
+  return ejecutar(c.cmd, [...c.args, ...args], { cwd: opts.cwd, input: opts.entrada, signal: opts.signal, timeoutMs: opts.timeoutMs });
 }
 
 function limpiarMensaje(texto) {
@@ -443,5 +448,5 @@ async function deshacer(raiz, resultado) {
 
 module.exports = {
   Cancelado, setTraductor, contexto, enFusion, diffParaMensaje, leerUnidades, describirUnidad, promptMensaje, promptDivision,
-  llamarClaude, limpiarMensaje, interpretarPlan, construirParche, aplicarPlan, deshacer, comandoWindows,
+  llamarClaude, limpiarMensaje, interpretarPlan, construirParche, aplicarPlan, deshacer, desdeShimNpm,
 };

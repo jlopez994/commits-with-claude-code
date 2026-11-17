@@ -88,11 +88,13 @@ const iniciar = g => {
   assert.throws(() => gv('rev-parse', '--verify', '-q', 'HEAD'), 'deshacer el primer commit deja el repo sin commits');
   assert.strictEqual(gv('diff', '--cached', '--name-only'), 'x.txt', 'con los cambios en stage');
 
-  // en Windows un .cmd (claude instalado con npm) solo arranca con shell y los argumentos entrecomillados
-  assert.deepStrictEqual(n.comandoWindows('C:\\npm\\claude.cmd', ['-p', 'a b', '']),
-    { cmd: '"C:\\npm\\claude.cmd"', args: ['"-p"', '"a b"', '""'], shell: true });
-  assert.deepStrictEqual(n.comandoWindows('C:\\x\\claude.exe', ['-p']), { cmd: 'C:\\x\\claude.exe', args: ['-p'], shell: false });
-  assert.throws(() => n.comandoWindows('claude.cmd', ['%PATH%']), /claude/);
+  // en Windows el claude.cmd de npm se sustituye por su destino, sin shell
+  const shim = l => `@ECHO off\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n)\r\n${l} %*\r\n`;
+  assert.deepStrictEqual(n.desdeShimNpm('C:\\npm\\claude.cmd', shim('"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js"')),
+    { cmd: 'node', args: ['C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js'] });
+  assert.deepStrictEqual(n.desdeShimNpm('C:\\npm\\claude.cmd', shim('"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"')),
+    { cmd: 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe', args: [] });
+  assert.throws(() => n.desdeShimNpm('C:\\x\\claude.cmd', '@echo off\r\nclaude.exe %*'), /claudePath/);
   console.log('OK');
 })().catch(e => {
   console.error(e);

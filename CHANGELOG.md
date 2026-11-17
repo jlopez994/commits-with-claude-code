@@ -4,7 +4,8 @@
 
 - Splitting works in a repository with no commits yet, and Undo leaves it without commits again.
 - Files whose names git quotes (with `"`, `\` or control characters) are split correctly.
-- On Windows, finds and runs a `claude.cmd` installed with npm.
+- On Windows, finds and runs Claude Code installed with npm (`claude.cmd`), without going through a shell.
+- `claudeCommit.claudePath` can only be set in user or remote settings, not by a workspace.
 - `claude -p` runs without your hooks, so they no longer change the generated messages.
 - Icon.
 

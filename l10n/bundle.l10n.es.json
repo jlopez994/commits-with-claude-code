@@ -45,5 +45,5 @@
   "Undo": "Deshacer",
   "Commits undone: the changes are staged again.": "Commits deshechos: los cambios vuelven a estar en stage.",
   "HEAD has moved since then: nothing was undone.": "HEAD se ha movido desde entonces: no se ha deshecho nada.",
-  "Cannot pass {0} to {1}: it contains \" or %": "No se puede pasar {0} a {1}: contiene \" o %"
+  "Cannot run {0}: set claudeCommit.claudePath to the claude executable": "No se puede ejecutar {0}: pon en claudeCommit.claudePath el ejecutable de claude"
 }

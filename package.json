@@ -87,7 +87,7 @@
         "claudeCommit.claudePath": {
           "type": "string",
           "default": "claude",
-          "scope": "machine-overridable",
+          "scope": "machine",
           "description": "%config.claudePath%"
         },
         "claudeCommit.messageModel": {
