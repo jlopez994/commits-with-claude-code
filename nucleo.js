@@ -94,13 +94,21 @@ function recortar(texto, maxLineas) {
   return lineas.slice(0, maxLineas).join('\n') + `\n[... ${lineas.length - maxLineas} more lines]`;
 }
 
-async function base(raiz) {
+// null en un repo sin commits
+async function cabeza(raiz) {
   try {
-    await git(raiz, ['rev-parse', '--verify', '-q', 'HEAD']);
-    return 'HEAD';
+    return (await git(raiz, ['rev-parse', '--verify', '-q', 'HEAD'])).trim();
   } catch (e) {
-    return ARBOL_VACIO;
+    return null;
   }
+}
+
+async function base(raiz) {
+  return (await cabeza(raiz)) ? 'HEAD' : ARBOL_VACIO;
+}
+
+function comoDeshacer(inicio) {
+  return inicio ? `git reset --soft ${inicio}` : 'git update-ref -d HEAD';
 }
 
 async function contexto(raiz) {
@@ -144,10 +152,17 @@ async function diffParaMensaje(raiz, excluir) {
   return { fuente, diff };
 }
 
+const ESCAPES_GIT = { a: '\x07', b: '\b', t: '\t', n: '\n', v: '\v', f: '\f', r: '\r' };
+
 function rutaDeCabecera(linea) {
   // con --no-renames la linea es "diff --git a/<ruta> b/<ruta>" con la misma ruta dos veces
-  const resto = linea.slice('diff --git a/'.length);
-  return resto.slice(0, (resto.length - ' b/'.length) / 2);
+  const resto = linea.slice('diff --git '.length);
+  // git entrecomilla al estilo C las rutas con ", \ o caracteres de control; los octales son bytes (latin1 aqui)
+  const comillas = resto.match(/^"a\/((?:[^"\\]|\\.)*)"/);
+  if (comillas) {
+    return comillas[1].replace(/\\([0-7]{3}|.)/g, (_, e) => (e.length === 3 ? String.fromCharCode(parseInt(e, 8)) : ESCAPES_GIT[e] || e));
+  }
+  return resto.slice('a/'.length, (resto.length - ' b/'.length + 'a/'.length) / 2);
 }
 
 function muestraFichero(abs, maxLineas) {
@@ -270,21 +285,58 @@ function promptDivision(ctx, unidades, extra, porFichero) {
   return texto;
 }
 
+/**
+ * Node no lanza un .cmd sin shell: del shim que crea npm (cmd-shim) se saca su destino para lanzarlo directamente
+ * @param 'rutaCmd
+ * @param 'contenido texto del .cmd
+ * @returns { cmd, args } con args los que van antes de los de claude
+ */
+function desdeShimNpm(rutaCmd, contenido) {
+  const destinos = [...contenido.matchAll(/"%dp0%\\([^"]+)"/g)].map(m => m[1]).filter(d => !/(^|\\)node\.exe$/i.test(d));
+  if (!destinos.length) { throw new Error(t('Cannot run {0}: set claudeCommit.claudePath to the claude executable', rutaCmd)); }
+  const dir = path.win32.dirname(rutaCmd);
+  const destino = path.win32.join(dir, destinos[destinos.length - 1]);
+  if (!/\.js$/i.test(destino)) { return { cmd: destino, args: [] }; }
+  // como el shim: el node.exe de su carpeta antes que el del PATH
+  const nodeJunto = path.win32.join(dir, 'node.exe');
+  return { cmd: fs.existsSync(nodeJunto) ? nodeJunto : 'node', args: [destino] };
+}
+
+function enPath(nombre) {
+  return (process.env.PATH || '').split(path.delimiter).filter(Boolean).map(d => path.join(d, nombre)).find(f => fs.existsSync(f));
+}
+
+function comandoClaude(configurada) {
+  let ruta = rutaClaude(configurada);
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(ruta)) {
+    if (!path.isAbsolute(ruta)) { ruta = enPath(ruta) || ruta; }
+    if (!fs.existsSync(ruta)) { throw new Error(t('Cannot run {0}: set claudeCommit.claudePath to the claude executable', ruta)); }
+    return desdeShimNpm(ruta, fs.readFileSync(ruta, 'utf8'));
+  }
+  return { cmd: ruta, args: [] };
+}
+
 function rutaClaude(configurada) {
   if (configurada && configurada !== 'claude') { return configurada; }
-  const local = path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
-  return fs.existsSync(local) ? local : 'claude';
+  const win = process.platform === 'win32';
+  const local = path.join(os.homedir(), '.local', 'bin', win ? 'claude.exe' : 'claude');
+  if (fs.existsSync(local)) { return local; }
+  if (!win) { return 'claude'; }
+  // spawn solo prueba .exe en el PATH: el claude.cmd de npm hay que buscarlo
+  return enPath('claude.exe') || enPath('claude.cmd') || 'claude';
 }
 
 /**
- * lanza claude -p desde la raiz del repo para que cargue su CLAUDE.md; el prompt va por stdin
+ * lanza claude -p desde la raiz del repo para que cargue su CLAUDE.md; el prompt va por stdin.
+ * Sin hooks: los del usuario (SessionStart y demas) cambiarian el estilo del mensaje
  * @param 'opts ruta, modelo, cwd, entrada, signal, timeoutMs
  * @returns respuesta de claude
  */
 function llamarClaude(opts) {
   const args = ['-p', 'Follow the instructions given on standard input.', '--model', opts.modelo,
-    '--tools', '', '--strict-mcp-config'];
-  return ejecutar(rutaClaude(opts.ruta), args, { cwd: opts.cwd, input: opts.entrada, signal: opts.signal, timeoutMs: opts.timeoutMs });
+    '--tools', '', '--strict-mcp-config', '--settings', path.join(__dirname, 'claude-settings.json')];
+  const c = comandoClaude(opts.ruta);
+  return ejecutar(c.cmd, [...c.args, ...args], { cwd: opts.cwd, input: opts.entrada, signal: opts.signal, timeoutMs: opts.timeoutMs });
 }
 
 function limpiarMensaje(texto) {
@@ -356,8 +408,8 @@ function construirParche(hunks) {
  * @returns { inicio, final, creados } con los hashes para poder deshacer
  */
 async function aplicarPlan(raiz, commits, porId, log) {
-  const inicio = (await git(raiz, ['rev-parse', 'HEAD'])).trim();
-  log(t('Initial HEAD {0}; to undo the new commits: git reset --soft {0}', inicio));
+  const inicio = await cabeza(raiz);
+  log(t('Initial HEAD {0}; to undo the new commits: {1}', inicio || t('(no commits yet)'), comoDeshacer(inicio)));
   await git(raiz, ['reset', '-q']);
   const creados = [];
   try {
@@ -379,7 +431,7 @@ async function aplicarPlan(raiz, commits, porId, log) {
     }
   } catch (e) {
     await git(raiz, ['reset', '-q']).catch(() => undefined);
-    const hechos = creados.length ? t(' {0} commits were created; to undo them: git reset --soft {1}.', creados.length, inicio) : '';
+    const hechos = creados.length ? t(' {0} commits were created; to undo them: {1}.', creados.length, comoDeshacer(inicio)) : '';
     throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos);
   }
   return { inicio, final: (await git(raiz, ['rev-parse', 'HEAD'])).trim(), creados };
@@ -393,10 +445,15 @@ async function aplicarPlan(raiz, commits, porId, log) {
 async function deshacer(raiz, resultado) {
   const actual = (await git(raiz, ['rev-parse', 'HEAD'])).trim();
   if (actual !== resultado.final) { throw new Error(t('HEAD has moved since then: nothing was undone.')); }
-  await git(raiz, ['reset', '--soft', resultado.inicio]);
+  if (resultado.inicio) {
+    await git(raiz, ['reset', '--soft', resultado.inicio]);
+  } else {
+    // primer commit del repo: borrar la rama deja los cambios en stage; con el valor esperado por si alguien la ha movido
+    await git(raiz, ['update-ref', '-d', 'HEAD', resultado.final]);
+  }
 }
 
 module.exports = {
   Cancelado, setTraductor, contexto, enFusion, diffParaMensaje, leerUnidades, describirUnidad, promptMensaje, promptDivision,
-  llamarClaude, limpiarMensaje, interpretarPlan, construirParche, aplicarPlan, deshacer,
+  llamarClaude, limpiarMensaje, interpretarPlan, construirParche, aplicarPlan, deshacer, desdeShimNpm,
 };

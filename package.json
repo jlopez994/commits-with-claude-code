@@ -2,7 +2,7 @@
   "name": "commits-with-claude-code",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "jlopez",
   "license": "MIT",
   "repository": {
@@ -14,6 +14,11 @@
   },
   "homepage": "https://github.com/jlopez994/commits-with-claude-code#readme",
   "author": "Julián L.",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1E1B4B",
+    "theme": "dark"
+  },
   "categories": [
     "SCM Providers",
     "AI"
@@ -44,7 +49,8 @@
     "publish": "vsce publish"
   },
   "devDependencies": {
-    "@vscode/vsce": "^4.1.1"
+    "@vscode/vsce": "^4.1.1",
+    "ovsx": "^1.4.0"
   },
   "contributes": {
     "commands": [
@@ -81,7 +87,7 @@
         "claudeCommit.claudePath": {
           "type": "string",
           "default": "claude",
-          "scope": "machine-overridable",
+          "scope": "machine",
           "description": "%config.claudePath%"
         },
         "claudeCommit.messageModel": {

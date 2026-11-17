@@ -30,11 +30,11 @@ $manifest = @"
 </PackageManifest>
 "@
 $tipos = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
-  '<Default Extension=".json" ContentType="application/json" /><Default Extension=".js" ContentType="application/javascript" />' +
+  '<Default Extension=".json" ContentType="application/json" /><Default Extension=".png" ContentType="image/png" /><Default Extension=".js" ContentType="application/javascript" />' +
   '<Default Extension=".md" ContentType="text/markdown" /><Default Extension=".txt" ContentType="text/plain" />' +
   '<Default Extension=".vsixmanifest" ContentType="text/xml" /><Override PartName="/extension/LICENSE" ContentType="text/plain" /></Types>'
 
-$ficheros = @('package.json', 'package.nls.json', 'package.nls.es.json', 'extension.js', 'nucleo.js', 'README.md', 'CHANGELOG.md', 'LICENSE') +
+$ficheros = @('package.json', 'package.nls.json', 'package.nls.es.json', 'extension.js', 'nucleo.js', 'claude-settings.json', 'images/icon.png', 'README.md', 'CHANGELOG.md', 'LICENSE') +
   (Get-ChildItem "$raiz\l10n" -File | ForEach-Object { "l10n/$($_.Name)" })
 
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem

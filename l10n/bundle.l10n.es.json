@@ -39,10 +39,11 @@
   "Claude did not return JSON: {0}": "Claude no ha devuelto un JSON: {0}",
   "Claude returned invalid JSON ({0}): {1}": "El JSON de Claude no es válido ({0}): {1}",
   "Claude did not assign it": "Claude no la ha asignado",
-  "Initial HEAD {0}; to undo the new commits: git reset --soft {0}": "HEAD inicial {0}; para deshacer los commits creados: git reset --soft {0}",
+  "Initial HEAD {0}; to undo the new commits: {1}": "HEAD inicial {0}; para deshacer los commits creados: {1}",
   "Commit {0} failed: {1}.": "Falló el commit {0}: {1}.",
-  " {0} commits were created; to undo them: git reset --soft {1}.": " Se han creado {0}; para deshacerlos: git reset --soft {1}.",
+  " {0} commits were created; to undo them: {1}.": " Se han creado {0}; para deshacerlos: {1}.",
   "Undo": "Deshacer",
   "Commits undone: the changes are staged again.": "Commits deshechos: los cambios vuelven a estar en stage.",
-  "HEAD has moved since then: nothing was undone.": "HEAD se ha movido desde entonces: no se ha deshecho nada."
+  "HEAD has moved since then: nothing was undone.": "HEAD se ha movido desde entonces: no se ha deshecho nada.",
+  "Cannot run {0}: set claudeCommit.claudePath to the claude executable": "No se puede ejecutar {0}: pon en claudeCommit.claudePath el ejecutable de claude"
 }

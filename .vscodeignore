@@ -6,3 +6,4 @@ node_modules/**
 PUBLICAR.md
 *.vsix
 .github/**
+images/*.svg
