@@ -7,8 +7,7 @@ Lo que esta en el Marketplace es **publico**.
 
 1. Crear el editor (publisher) en <https://marketplace.visualstudio.com/manage> con la cuenta Microsoft. Su id va en
    `package.json` -> `"publisher"` (ahora `jlopez`).
-2. Token: en <https://dev.azure.com> (misma cuenta) -> User settings -> Personal access tokens -> New token, organizacion
-   **All accessible organizations**, scope **Marketplace > Manage**.
+2. Politica de Trusted Publishing (ver abajo). Los PAT globales de Azure DevOps dejan de valer el 2026-12-01.
 3. Repositorio publico: <https://github.com/jlopez994/commits-with-claude-code>, ya en `package.json` (`repository`, `bugs`,
    `homepage`).
 4. Opcional: icono PNG de 128x128 en `images/icon.png` y `"icon": "images/icon.png"` en `package.json`.
@@ -16,13 +15,14 @@ Lo que esta en el Marketplace es **publico**.
 ## Cada version
 
 La publica GitHub Actions (`.github/workflows/publicar.yml`) al empujar un tag `v<version>`; cada PR y push a `main` pasa
-tests y `vsce package`. El token va en el secret `VSCE_PAT` del repo:
-`gh secret set VSCE_PAT -R jlopez994/commits-with-claude-code` (lo pide sin eco). Caduca: al renovarlo, repetir.
+tests y `vsce package`. Sin token: usa Trusted Publishing (OIDC), con una politica en la pestana **Trusted Publishing** del
+editor `jlopez` (owner `jlopez994`, repo `commits-with-claude-code`, workflow `publicar.yml`, environment `marketplace`). El
+environment `marketplace` del repo solo admite tags `v*`.
 
 1. Subir `version` en `package.json` y apuntar los cambios en `CHANGELOG.md`.
 2. Fusionar en `main`, y luego `git tag v<version> && git push origin v<version>`.
 
-A mano, con Node 20 o superior: `npm ci && npm test && npx vsce publish` (pide el token con `npx vsce login jlopez`).
+A mano (Node 22 o superior): `npx vsce package` y subir el VSIX en la pagina del editor.
 
 Open VSX (opcional): `npx ovsx publish -p <token-open-vsx>`.
 
