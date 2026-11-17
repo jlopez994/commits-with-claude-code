@@ -294,13 +294,25 @@ function promptDivision(ctx, unidades, extra, porFichero) {
 function desdeShimNpm(rutaCmd, contenido) {
   const destinos = [...contenido.matchAll(/"%dp0%\\([^"]+)"/g)].map(m => m[1]).filter(d => !/(^|\\)node\.exe$/i.test(d));
   if (!destinos.length) { throw new Error(t('Cannot run {0}: set claudeCommit.claudePath to the claude executable', rutaCmd)); }
-  const destino = path.win32.join(path.win32.dirname(rutaCmd), destinos[destinos.length - 1]);
-  return /\.js$/i.test(destino) ? { cmd: 'node', args: [destino] } : { cmd: destino, args: [] };
+  const dir = path.win32.dirname(rutaCmd);
+  const destino = path.win32.join(dir, destinos[destinos.length - 1]);
+  if (!/\.js$/i.test(destino)) { return { cmd: destino, args: [] }; }
+  // como el shim: el node.exe de su carpeta antes que el del PATH
+  const nodeJunto = path.win32.join(dir, 'node.exe');
+  return { cmd: fs.existsSync(nodeJunto) ? nodeJunto : 'node', args: [destino] };
+}
+
+function enPath(nombre) {
+  return (process.env.PATH || '').split(path.delimiter).filter(Boolean).map(d => path.join(d, nombre)).find(f => fs.existsSync(f));
 }
 
 function comandoClaude(configurada) {
-  const ruta = rutaClaude(configurada);
-  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(ruta)) { return desdeShimNpm(ruta, fs.readFileSync(ruta, 'utf8')); }
+  let ruta = rutaClaude(configurada);
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(ruta)) {
+    if (!path.isAbsolute(ruta)) { ruta = enPath(ruta) || ruta; }
+    if (!fs.existsSync(ruta)) { throw new Error(t('Cannot run {0}: set claudeCommit.claudePath to the claude executable', ruta)); }
+    return desdeShimNpm(ruta, fs.readFileSync(ruta, 'utf8'));
+  }
   return { cmd: ruta, args: [] };
 }
 
@@ -311,12 +323,7 @@ function rutaClaude(configurada) {
   if (fs.existsSync(local)) { return local; }
   if (!win) { return 'claude'; }
   // spawn solo prueba .exe en el PATH: el claude.cmd de npm hay que buscarlo
-  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  for (const nombre of ['claude.exe', 'claude.cmd']) {
-    const hallado = dirs.map(d => path.join(d, nombre)).find(f => fs.existsSync(f));
-    if (hallado) { return hallado; }
-  }
-  return 'claude';
+  return enPath('claude.exe') || enPath('claude.cmd') || 'claude';
 }
 
 /**
