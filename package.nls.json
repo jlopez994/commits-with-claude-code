@@ -1,0 +1,20 @@
+{
+  "displayName": "Commits with Claude Code (unofficial)",
+  "description": "Generate commit messages and split your changes into minimal commits with the Claude Code CLI, following each repository's own conventions (CLAUDE.md and commit history).",
+  "command.generate": "Generate commit message with Claude",
+  "command.split": "Split changes into commits with Claude",
+  "config.title": "Commits with Claude Code",
+  "config.claudePath": "Claude Code executable. With 'claude' it looks in ~/.local/bin first and then in the PATH.",
+  "config.messageModel": "Model used to write the commit message (value for claude --model).",
+  "config.splitModel": "Model used to split changes into commits (value for claude --model).",
+  "config.splitBy": "How changes are cut before Claude groups them into commits.",
+  "config.splitBy.file": "Each file goes whole into a single commit.",
+  "config.splitBy.hunk": "Each hunk separately: one file can be spread over several commits.",
+  "config.confirm": "What is asked before creating the commits. A warning from Claude (for example, a protected branch) is always confirmed.",
+  "config.confirm.confirm": "One confirmation dialog with the list of commits.",
+  "config.confirm.review": "First a list to uncheck commits and edit messages, then the confirmation dialog.",
+  "config.confirm.none": "Create the commits straight away; the final notification offers Undo.",
+  "config.exclude": "Paths (git pathspecs) that are never sent to Claude nor committed from here.",
+  "config.extraInstructions": "Instructions appended to the prompt, on top of the repository's CLAUDE.md conventions.",
+  "config.timeoutSeconds": "Maximum time to wait for claude -p, in seconds."
+}

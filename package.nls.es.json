@@ -1,0 +1,20 @@
+{
+  "displayName": "Commits con Claude Code (no oficial)",
+  "description": "Genera el mensaje de commit y reparte los cambios en commits mínimos con la CLI de Claude Code, siguiendo las convenciones de cada repositorio (CLAUDE.md e historial de commits).",
+  "command.generate": "Generar mensaje de commit con Claude",
+  "command.split": "Repartir los cambios en commits con Claude",
+  "config.title": "Commits con Claude Code",
+  "config.claudePath": "Ejecutable de Claude Code. Con 'claude' se busca primero en ~/.local/bin y luego en el PATH.",
+  "config.messageModel": "Modelo para escribir el mensaje de commit (valor de claude --model).",
+  "config.splitModel": "Modelo para repartir los cambios en commits (valor de claude --model).",
+  "config.splitBy": "Cómo se trocean los cambios antes de que Claude los agrupe en commits.",
+  "config.splitBy.file": "Cada fichero va entero a un solo commit.",
+  "config.splitBy.hunk": "Cada hunk por separado: un fichero puede repartirse entre varios commits.",
+  "config.confirm": "Qué se pregunta antes de crear los commits. Un aviso de Claude (por ejemplo, una rama protegida) se confirma siempre.",
+  "config.confirm.confirm": "Un diálogo de confirmación con la lista de commits.",
+  "config.confirm.review": "Primero una lista para desmarcar commits y editar mensajes, luego el diálogo de confirmación.",
+  "config.confirm.none": "Crea los commits directamente; el aviso final ofrece Deshacer.",
+  "config.exclude": "Rutas (pathspec de git) que nunca se mandan a Claude ni se commitean desde aquí.",
+  "config.extraInstructions": "Instrucciones que se añaden al prompt, además de las convenciones del CLAUDE.md del repositorio.",
+  "config.timeoutSeconds": "Tiempo máximo de espera a claude -p, en segundos."
+}

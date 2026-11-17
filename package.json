@@ -1,0 +1,153 @@
+{
+  "name": "commits-with-claude-code",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "jlopez",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlopez994/commits-with-claude-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jlopez994/commits-with-claude-code/issues"
+  },
+  "homepage": "https://github.com/jlopez994/commits-with-claude-code#readme",
+  "author": "Julián L.",
+  "categories": [
+    "SCM Providers",
+    "AI"
+  ],
+  "keywords": [
+    "git",
+    "commit",
+    "commit message",
+    "claude",
+    "claude code",
+    "atomic commits"
+  ],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "main": "./extension.js",
+  "l10n": "./l10n",
+  "activationEvents": [],
+  "scripts": {
+    "test": "node test/nucleo.test.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.0"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeCommit.generar",
+        "title": "%command.generate%",
+        "category": "Claude",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "claudeCommit.dividir",
+        "title": "%command.split%",
+        "category": "Claude",
+        "icon": "$(git-commit)"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "claudeCommit.generar",
+          "when": "scmProvider == git",
+          "group": "navigation@-5"
+        },
+        {
+          "command": "claudeCommit.dividir",
+          "when": "scmProvider == git",
+          "group": "navigation@-4"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "%config.title%",
+      "properties": {
+        "claudeCommit.claudePath": {
+          "type": "string",
+          "default": "claude",
+          "scope": "machine-overridable",
+          "description": "%config.claudePath%"
+        },
+        "claudeCommit.messageModel": {
+          "type": "string",
+          "default": "haiku",
+          "scope": "resource",
+          "description": "%config.messageModel%"
+        },
+        "claudeCommit.splitModel": {
+          "type": "string",
+          "default": "sonnet",
+          "scope": "resource",
+          "description": "%config.splitModel%"
+        },
+        "claudeCommit.splitBy": {
+          "type": "string",
+          "enum": [
+            "file",
+            "hunk"
+          ],
+          "enumDescriptions": [
+            "%config.splitBy.file%",
+            "%config.splitBy.hunk%"
+          ],
+          "default": "file",
+          "scope": "resource",
+          "description": "%config.splitBy%"
+        },
+        "claudeCommit.confirm": {
+          "type": "string",
+          "enum": [
+            "confirm",
+            "review",
+            "none"
+          ],
+          "enumDescriptions": [
+            "%config.confirm.confirm%",
+            "%config.confirm.review%",
+            "%config.confirm.none%"
+          ],
+          "default": "confirm",
+          "scope": "resource",
+          "description": "%config.confirm%"
+        },
+        "claudeCommit.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "%config.exclude%"
+        },
+        "claudeCommit.extraInstructions": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "%config.extraInstructions%"
+        },
+        "claudeCommit.timeoutSeconds": {
+          "type": "number",
+          "default": 180,
+          "scope": "resource",
+          "description": "%config.timeoutSeconds%"
+        }
+      }
+    }
+  }
+}

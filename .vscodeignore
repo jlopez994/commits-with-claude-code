@@ -1,0 +1,7 @@
+.git/**
+.gitignore
+test/**
+scripts/**
+node_modules/**
+PUBLICAR.md
+*.vsix
