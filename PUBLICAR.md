@@ -15,18 +15,16 @@ Lo que esta en el Marketplace es **publico**.
 
 ## Cada version
 
-Hace falta Node 20 o superior.
+La publica GitHub Actions (`.github/workflows/publicar.yml`) al empujar un tag `v<version>`; cada PR y push a `main` pasa
+tests y `vsce package`. El token va en el secret `VSCE_PAT` del repo:
+`gh secret set VSCE_PAT -R jlopez994/commits-with-claude-code` (lo pide sin eco). Caduca: al renovarlo, repetir.
 
-```sh
-npm ci
-npm test
-npx vsce login jlopez                    # solo la primera vez, pide el token (pegarlo aqui, no en el chat)
-npx vsce publish                         # publica la version de package.json; "publish patch" la sube antes
-```
+1. Subir `version` en `package.json` y apuntar los cambios en `CHANGELOG.md`.
+2. Fusionar en `main`, y luego `git tag v<version> && git push origin v<version>`.
+
+A mano, con Node 20 o superior: `npm ci && npm test && npx vsce publish` (pide el token con `npx vsce login jlopez`).
 
 Open VSX (opcional): `npx ovsx publish -p <token-open-vsx>`.
-
-Antes de publicar, apuntar los cambios en `CHANGELOG.md`.
 
 ## Tenerla en todos los VS Code
 
