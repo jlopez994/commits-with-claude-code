@@ -34,7 +34,7 @@ $tipos = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.ope
   '<Default Extension=".md" ContentType="text/markdown" /><Default Extension=".txt" ContentType="text/plain" />' +
   '<Default Extension=".vsixmanifest" ContentType="text/xml" /><Override PartName="/extension/LICENSE" ContentType="text/plain" /></Types>'
 
-$ficheros = @('package.json', 'package.nls.json', 'package.nls.es.json', 'extension.js', 'nucleo.js', 'README.md', 'CHANGELOG.md', 'LICENSE') +
+$ficheros = @('package.json', 'package.nls.json', 'package.nls.es.json', 'extension.js', 'nucleo.js', 'claude-settings.json', 'README.md', 'CHANGELOG.md', 'LICENSE') +
   (Get-ChildItem "$raiz\l10n" -File | ForEach-Object { "l10n/$($_.Name)" })
 
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem

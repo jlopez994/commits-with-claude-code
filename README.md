@@ -30,7 +30,8 @@ The diff is sent to Claude through your own Claude Code account, exactly as if y
 
 ## Safety
 
-- Claude runs with no tools (`--tools ""`) and no MCP servers: it only reads the prompt and answers.
+- Claude runs with no tools (`--tools ""`), no MCP servers and no hooks: it only reads the prompt and answers. Your `CLAUDE.md`
+  files still apply.
 - Splitting only rebuilds the git index and creates commits; the working tree is never touched. Whatever you had staged is
   split again. The initial `HEAD` is written to the **Claude commits** output together with the `git reset --soft` that undoes
   everything.
