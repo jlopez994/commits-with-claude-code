@@ -9,6 +9,7 @@ const n = require('../nucleo');
 
 const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-commits-'));
 const vacio = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-commits-vacio-'));
+const conStage = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-commits-stage-'));
 const gitEn = dir => (...args) => cp.execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
 const git = gitEn(raiz);
 const escribir = (f, contenido) => fs.writeFileSync(path.join(raiz, f), contenido);
@@ -88,6 +89,69 @@ const iniciar = g => {
   assert.throws(() => gv('rev-parse', '--verify', '-q', 'HEAD'), 'deshacer el primer commit deja el repo sin commits');
   assert.strictEqual(gv('diff', '--cached', '--name-only'), 'x.txt', 'con los cambios en stage');
 
+  // con algo en stage solo se reparte el stage, con su version y no la del disco, y lo no commiteado sigue en stage
+  const gs = gitEn(conStage);
+  const escribirS = (f, contenido) => fs.writeFileSync(path.join(conStage, f), contenido);
+  iniciar(gs);
+  const lineas = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`);
+  escribirS('a.txt', lineas.join('\n') + '\n');
+  escribirS('f.txt', 'f\n');
+  escribirS('g.txt', 'g\n');
+  gs('add', '-A');
+  gs('commit', '-qm', 'initial');
+  lineas[1] = 'line 2 staged';
+  escribirS('a.txt', lineas.join('\n') + '\n');
+  escribirS('nuevo.txt', 'v1\n');
+  escribirS('local.env', 'x\n');
+  gs('add', 'a.txt', 'nuevo.txt', 'local.env');
+  gs('rm', '-q', 'g.txt');
+  lineas[34] = 'line 35 unstaged';
+  escribirS('a.txt', lineas.join('\n') + '\n');
+  escribirS('nuevo.txt', 'v2\n');
+  escribirS('f.txt', 'f changed\n');
+  escribirS('suelto.txt', 'untracked\n');
+
+  assert.strictEqual((await n.foto(conStage, ['a.txt', 'nuevo.txt', 'g.txt', 'local.env'])).arbol, null, 'lo excluido no cuenta como stage');
+  const fs0 = await n.foto(conStage, []);
+  const arbol = fs0.arbol;
+  assert.ok(arbol, 'hay stage');
+  const enterosS = await n.leerUnidades(conStage, ['local.env'], true, arbol);
+  const pe = {};
+  enterosS.forEach(u => { pe[u.id] = u; });
+  const re = await n.aplicarPlan(conStage, [{ mensaje: 'all staged', unidades: enterosS.map(u => u.id) }], pe, () => undefined, fs0);
+  assert.strictEqual(gs('show', 'HEAD:a.txt').includes('line 35 unstaged'), false, 'por fichero tambien sale la version del stage');
+  assert.strictEqual(gs('diff', '--cached', '--name-only'), 'local.env', 'lo excluido que estaba en stage sigue en stage');
+  await n.deshacer(conStage, re);
+  assert.strictEqual(gs('write-tree'), arbol);
+  const us = await n.leerUnidades(conStage, ['local.env'], false, arbol);
+  assert.deepStrictEqual(us.map(u => [u.ruta, u.tipo]).sort(), [['a.txt', 'hunk'], ['g.txt', 'fichero'], ['nuevo.txt', 'fichero']],
+    'solo lo que esta en stage');
+  const ps = {};
+  us.forEach(u => { ps[u.id] = u; });
+  const idS = ruta => us.find(u => u.ruta === ruta).id;
+  const rs = await n.aplicarPlan(conStage, [{ mensaje: 'staged part', unidades: [idS('a.txt'), idS('nuevo.txt')] }], ps, () => undefined, fs0);
+  assert.strictEqual(gs('show', 'HEAD:nuevo.txt'), 'v1', 'la version del stage, no la del disco');
+  assert.ok(gs('show', 'HEAD:a.txt').includes('line 2 staged') && !gs('show', 'HEAD:a.txt').includes('line 35 unstaged'));
+  assert.strictEqual(gs('diff', '--cached', '--name-only').split('\n').sort().join(','), 'g.txt,local.env', 'lo que no entra en ningun commit sigue en stage');
+  assert.strictEqual(fs.readFileSync(path.join(conStage, 'nuevo.txt'), 'utf8'), 'v2\n', 'el arbol de trabajo no se toca');
+  assert.deepStrictEqual(cp.execFileSync('git', ['status', '--short'], { cwd: conStage, encoding: 'utf8' }).trimEnd().split('\n').sort(), ['D  g.txt', 'A  local.env', ' M a.txt', ' M f.txt', ' M nuevo.txt', '?? suelto.txt'].sort());
+  await n.deshacer(conStage, rs);
+  assert.strictEqual(gs('write-tree'), arbol, 'deshacer deja el stage como estaba');
+  gs('add', 'f.txt');
+  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, fs0), /changed meanwhile/, 'si el stage cambia tras la foto no se toca');
+  gs('reset', '-q', 'f.txt');
+  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, { cabeza: 'otro', indice: arbol, arbol }), /changed meanwhile/, 'ni si se mueve HEAD');
+  const hook = path.join(conStage, '.git', 'hooks', 'pre-commit');
+  fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  await assert.rejects(n.aplicarPlan(conStage, [{ mensaje: 'x', unidades: [idS('a.txt')] }], ps, () => undefined, fs0), /Commit 1/);
+  assert.strictEqual(gs('write-tree'), arbol, 'si un commit falla el stage vuelve a estar como estaba');
+  fs.unlinkSync(hook);
+  gs('reset', '-q');
+  const sinStage = await n.foto(conStage, []);
+  assert.strictEqual(sinStage.arbol, null);
+  gs('add', 'f.txt');
+  await assert.rejects(n.aplicarPlan(conStage, [], {}, () => undefined, sinStage), /changed meanwhile/, 'ni si se pone algo en stage tras una foto sin stage');
+
   // en Windows el claude.cmd de npm se sustituye por su destino, sin shell
   const shim = l => `@ECHO off\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n)\r\n${l} %*\r\n`;
   assert.deepStrictEqual(n.desdeShimNpm('C:\\npm\\claude.cmd', shim('"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js"')),
@@ -99,4 +163,4 @@ const iniciar = g => {
 })().catch(e => {
   console.error(e);
   process.exitCode = 1;
-}).finally(() => [raiz, vacio].forEach(d => fs.rmSync(d, { recursive: true, force: true })));
+}).finally(() => [raiz, vacio, conStage].forEach(d => fs.rmSync(d, { recursive: true, force: true })));

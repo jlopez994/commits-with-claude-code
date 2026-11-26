@@ -3,8 +3,8 @@
 Two buttons in the Source Control view, powered by your local [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI:
 
 - **✨ Generate commit message**: fills the commit input box from your staged changes (or from all changes when nothing is staged).
-- **Split changes into commits**: takes all pending changes (staged, unstaged and untracked) and lets Claude group them into
-  minimal, atomic commits, by file or by hunk (`claudeCommit.splitBy`). Depending on `claudeCommit.confirm` you confirm the
+- **Split changes into commits**: takes your staged changes (or all pending changes, untracked files included, when nothing
+  is staged) and lets Claude group them into minimal, atomic commits, by file or by hunk (`claudeCommit.splitBy`). Depending on `claudeCommit.confirm` you confirm the
   list, review and edit it first, or let it commit straight away; the final notification always offers **Undo**.
 
 ## It follows each repository's rules
@@ -32,8 +32,8 @@ The diff is sent to Claude through your own Claude Code account, exactly as if y
 
 - Claude runs with no tools (`--tools ""`), no MCP servers and no hooks: it only reads the prompt and answers. Your `CLAUDE.md`
   files still apply.
-- Splitting only rebuilds the git index and creates commits; the working tree is never touched. Whatever you had staged is
-  split again. The initial `HEAD` is written to the **Claude commits** output together with the `git reset --soft` that undoes
+- Splitting only rebuilds the git index and creates commits; the working tree is never touched. With something staged, only
+  that is split, using the staged version of each file, and whatever ends up in no commit stays staged. The initial `HEAD` is written to the **Claude commits** output together with the `git reset --soft` that undoes
   everything.
 - By default nothing is committed without your confirmation. With `"claudeCommit.confirm": "none"` it commits straight away,
   except when Claude raises a warning (such as a protected branch): that is always confirmed. **Undo** resets softly to the

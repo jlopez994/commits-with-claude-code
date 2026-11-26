@@ -181,16 +181,30 @@ function muestraFichero(abs, maxLineas) {
 }
 
 /**
- * trocea los cambios respecto a HEAD (stage + arbol de trabajo + sin seguimiento) en unidades:
+ * foto de HEAD y del stage antes de repartir, para no aplicar el plan si cambian mientras tanto
+ * @param 'raiz
+ * @param 'excluir
+ * @returns { cabeza, indice, arbol } con indice el tree del indice y arbol ese mismo, o null si no hay nada en stage fuera de lo excluido
+ */
+async function foto(raiz, excluir) {
+  if ((await git(raiz, ['ls-files', '-u'])).trim()) { throw new Error(t('There are unresolved conflicts: resolve them before splitting commits')); }
+  const enStage = await git(raiz, ['diff', '--cached', '--name-only', ...especRutas(excluir)]);
+  const indice = (await git(raiz, ['write-tree'])).trim();
+  return { cabeza: await cabeza(raiz), indice, arbol: enStage.trim() ? indice : null };
+}
+
+/**
+ * trocea los cambios respecto a HEAD en unidades: los de arbol si se pasa, o si no stage + arbol de trabajo + sin seguimiento;
  * un hunk de un fichero de texto modificado, o un fichero entero si es nuevo, borrado, binario, cambia de modo o porFichero
  * @param 'raiz
  * @param 'excluir
  * @param 'porFichero
+ * @param 'arbol el de foto, o null
  * @returns unidades
  */
-async function leerUnidades(raiz, excluir, porFichero) {
+async function leerUnidades(raiz, excluir, porFichero, arbol) {
   const espec = especRutas(excluir);
-  const diff = await git(raiz, ['diff', await base(raiz), '--no-renames', '--no-color', '--no-ext-diff',
+  const diff = await git(raiz, ['diff', await base(raiz), ...(arbol ? [arbol] : []), '--no-renames', '--no-color', '--no-ext-diff',
     '--src-prefix=a/', '--dst-prefix=b/', '-U3', ...espec], { encoding: 'latin1' });
   const unidades = [];
   const nuevoId = () => 'U' + (unidades.length + 1);
@@ -214,6 +228,7 @@ async function leerUnidades(raiz, excluir, porFichero) {
       unidades.push({ id: nuevoId(), tipo: 'hunk', ruta, cabecera, texto, orden: i, total: posiciones.length, muestra: aUtf8(texto) });
     });
   }
+  if (arbol) { return unidades; }
   const otros = await git(raiz, ['ls-files', '--others', '--exclude-standard', '-z', ...espec]);
   for (const ruta of otros.split('\0').filter(Boolean)) {
     unidades.push({ id: nuevoId(), tipo: 'fichero', ruta, estado: 'untracked', muestra: muestraFichero(path.join(raiz, ruta), 80) });
@@ -399,42 +414,86 @@ function construirParche(hunks) {
   return parche;
 }
 
+const literales = rutas => rutas.map(r => ':(literal)' + r);
+
+// ficheros enteros al indice: desde arbol o, sin el, desde el disco
+function ficherosAlIndice(raiz, rutas, arbol) {
+  return git(raiz, arbol ? ['reset', '-q', arbol, '--', ...literales(rutas)] : ['add', '-A', '--', ...literales(rutas)]);
+}
+
+// git apply encuentra cada hunk por su contexto aunque los commits anteriores hayan movido las lineas
+function hunksAlIndice(raiz, hunks) {
+  return git(raiz, ['apply', '--cached', '--whitespace=nowarn', '-'], { input: construirParche(hunks), inputEncoding: 'latin1' });
+}
+
+async function alIndice(raiz, unidades, arbol) {
+  const hunks = unidades.filter(u => u.tipo === 'hunk');
+  const rutas = unidades.filter(u => u.tipo === 'fichero').map(u => u.ruta);
+  if (hunks.length) { await hunksAlIndice(raiz, hunks); }
+  if (rutas.length) { await ficherosAlIndice(raiz, rutas, arbol); }
+}
+
+// lo del stage que no ha entrado en ningun commit vuelve al stage por unidades, no con read-tree, para no deshacer lo que un hook
+// haya cambiado; cada hunk por separado porque uno que ya no encaja no debe impedir devolver los demas
+async function devolverAlStage(raiz, porId, usados, arbol, excluidos, log) {
+  const resto = Object.values(porId).filter(u => !usados.has(u.id));
+  const rutas = resto.filter(u => u.tipo === 'fichero').map(u => u.ruta).concat(excluidos);
+  const fallos = [];
+  await git(raiz, ['reset', '-q']).catch(e => fallos.push(e.message));
+  if (rutas.length) { await ficherosAlIndice(raiz, rutas, arbol).catch(e => fallos.push(e.message)); }
+  for (const h of resto.filter(u => u.tipo === 'hunk')) {
+    await hunksAlIndice(raiz, [h]).catch(() => fallos.push(describirUnidad(h)));
+  }
+  if (fallos.length) { log(t('Could not stage again what was left out: {0}', fallos.join('; '))); }
+  return fallos;
+}
+
 /**
  * crea los commits del plan uno a uno rehaciendo el indice; el arbol de trabajo no se toca
  * @param 'raiz
  * @param 'commits
  * @param 'porId unidades por id
  * @param 'log
- * @returns { inicio, final, creados } con los hashes para poder deshacer
+ * @param 'f la de foto: con arbol, los ficheros salen de el y lo que no entre en ningun commit sigue en stage
+ * @returns { inicio, final, creados, sinDevolver } con los hashes para poder deshacer y lo que no ha vuelto al stage
  */
-async function aplicarPlan(raiz, commits, porId, log) {
+async function aplicarPlan(raiz, commits, porId, log, f) {
+  const arbol = f && f.arbol;
   const inicio = await cabeza(raiz);
+  if (f && (inicio !== f.cabeza || (await git(raiz, ['write-tree'])).trim() !== f.indice)) {
+    throw new Error(t('HEAD or the staged changes have changed meanwhile: split again'));
+  }
   log(t('Initial HEAD {0}; to undo the new commits: {1}', inicio || t('(no commits yet)'), comoDeshacer(inicio)));
+  if (arbol) { log(t('Staged changes saved as {0}; to restore them: git read-tree {0}', arbol)); }
+  // lo que estaba en stage pero no es ninguna unidad (claudeCommit.exclude) tambien vuelve al stage
+  const deUnidades = new Set(Object.values(porId).map(u => u.ruta));
+  const excluidos = arbol ? (await git(raiz, ['diff', '--cached', '--name-only', '-z'])).split('\0').filter(r => r && !deUnidades.has(r)) : [];
   await git(raiz, ['reset', '-q']);
   const creados = [];
+  const usados = new Set();
   try {
     for (const c of commits) {
-      const unidades = c.unidades.map(id => porId[id]);
-      const hunks = unidades.filter(u => u.tipo === 'hunk');
-      const ficheros = unidades.filter(u => u.tipo === 'fichero');
-      // git apply encuentra cada hunk por su contexto aunque los commits anteriores hayan movido las lineas
-      if (hunks.length) {
-        await git(raiz, ['apply', '--cached', '--whitespace=nowarn', '-'], { input: construirParche(hunks), inputEncoding: 'latin1' });
-      }
-      if (ficheros.length) {
-        await git(raiz, ['add', '-A', '--', ...ficheros.map(u => u.ruta)]);
-      }
+      await alIndice(raiz, c.unidades.map(id => porId[id]), arbol);
       await git(raiz, ['commit', '-q', '-m', c.mensaje]);
+      c.unidades.forEach(id => usados.add(id));
       const hash = (await git(raiz, ['rev-parse', '--short', 'HEAD'])).trim();
       creados.push(hash);
       log(`  ${hash} ${c.mensaje}`);
     }
   } catch (e) {
-    await git(raiz, ['reset', '-q']).catch(() => undefined);
+    let perdido = '';
+    if (arbol) {
+      const sin = await devolverAlStage(raiz, porId, usados, arbol, excluidos, log);
+      if (sin.length) { perdido = t(' Part of the staged changes could not be staged again; to restore them: git read-tree {0}.', arbol); }
+    } else {
+      await git(raiz, ['reset', '-q']).catch(() => undefined);
+    }
     const hechos = creados.length ? t(' {0} commits were created; to undo them: {1}.', creados.length, comoDeshacer(inicio)) : '';
-    throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos);
+    throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos + perdido);
   }
-  return { inicio, final: (await git(raiz, ['rev-parse', 'HEAD'])).trim(), creados };
+  const sinDevolver = arbol && (excluidos.length || usados.size < Object.keys(porId).length)
+    ? await devolverAlStage(raiz, porId, usados, arbol, excluidos, log) : [];
+  return { inicio, final: (await git(raiz, ['rev-parse', 'HEAD'])).trim(), creados, sinDevolver };
 }
 
 /**
@@ -454,6 +513,6 @@ async function deshacer(raiz, resultado) {
 }
 
 module.exports = {
-  Cancelado, setTraductor, contexto, enFusion, diffParaMensaje, leerUnidades, describirUnidad, promptMensaje, promptDivision,
+  Cancelado, setTraductor, contexto, enFusion, diffParaMensaje, foto, leerUnidades, describirUnidad, promptMensaje, promptDivision,
   llamarClaude, limpiarMensaje, interpretarPlan, construirParche, aplicarPlan, deshacer, desdeShimNpm,
 };
