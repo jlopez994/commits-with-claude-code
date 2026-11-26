@@ -111,13 +111,14 @@ const iniciar = g => {
   escribirS('f.txt', 'f changed\n');
   escribirS('suelto.txt', 'untracked\n');
 
-  assert.strictEqual(await n.arbolStage(conStage, ['a.txt', 'nuevo.txt', 'g.txt', 'local.env']), null, 'lo excluido no cuenta como stage');
-  const arbol = await n.arbolStage(conStage, []);
+  assert.strictEqual((await n.foto(conStage, ['a.txt', 'nuevo.txt', 'g.txt', 'local.env'])).arbol, null, 'lo excluido no cuenta como stage');
+  const fs0 = await n.foto(conStage, []);
+  const arbol = fs0.arbol;
   assert.ok(arbol, 'hay stage');
   const enterosS = await n.leerUnidades(conStage, ['local.env'], true, arbol);
   const pe = {};
   enterosS.forEach(u => { pe[u.id] = u; });
-  const re = await n.aplicarPlan(conStage, [{ mensaje: 'all staged', unidades: enterosS.map(u => u.id) }], pe, () => undefined, arbol);
+  const re = await n.aplicarPlan(conStage, [{ mensaje: 'all staged', unidades: enterosS.map(u => u.id) }], pe, () => undefined, fs0);
   assert.strictEqual(gs('show', 'HEAD:a.txt').includes('line 35 unstaged'), false, 'por fichero tambien sale la version del stage');
   assert.strictEqual(gs('diff', '--cached', '--name-only'), 'local.env', 'lo excluido que estaba en stage sigue en stage');
   await n.deshacer(conStage, re);
@@ -128,7 +129,7 @@ const iniciar = g => {
   const ps = {};
   us.forEach(u => { ps[u.id] = u; });
   const idS = ruta => us.find(u => u.ruta === ruta).id;
-  const rs = await n.aplicarPlan(conStage, [{ mensaje: 'staged part', unidades: [idS('a.txt'), idS('nuevo.txt')] }], ps, () => undefined, arbol);
+  const rs = await n.aplicarPlan(conStage, [{ mensaje: 'staged part', unidades: [idS('a.txt'), idS('nuevo.txt')] }], ps, () => undefined, fs0);
   assert.strictEqual(gs('show', 'HEAD:nuevo.txt'), 'v1', 'la version del stage, no la del disco');
   assert.ok(gs('show', 'HEAD:a.txt').includes('line 2 staged') && !gs('show', 'HEAD:a.txt').includes('line 35 unstaged'));
   assert.strictEqual(gs('diff', '--cached', '--name-only').split('\n').sort().join(','), 'g.txt,local.env', 'lo que no entra en ningun commit sigue en stage');
@@ -137,11 +138,12 @@ const iniciar = g => {
   await n.deshacer(conStage, rs);
   assert.strictEqual(gs('write-tree'), arbol, 'deshacer deja el stage como estaba');
   gs('add', 'f.txt');
-  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, arbol), /changed meanwhile/, 'si el stage cambia tras la foto no se toca');
+  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, fs0), /changed meanwhile/, 'si el stage cambia tras la foto no se toca');
   gs('reset', '-q', 'f.txt');
+  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, { cabeza: 'otro', arbol }), /changed meanwhile/, 'ni si se mueve HEAD');
   const hook = path.join(conStage, '.git', 'hooks', 'pre-commit');
   fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  await assert.rejects(n.aplicarPlan(conStage, [{ mensaje: 'x', unidades: [idS('a.txt')] }], ps, () => undefined, arbol), /Commit 1/);
+  await assert.rejects(n.aplicarPlan(conStage, [{ mensaje: 'x', unidades: [idS('a.txt')] }], ps, () => undefined, fs0), /Commit 1/);
   assert.strictEqual(gs('write-tree'), arbol, 'si un commit falla el stage vuelve a estar como estaba');
 
   // en Windows el claude.cmd de npm se sustituye por su destino, sin shell

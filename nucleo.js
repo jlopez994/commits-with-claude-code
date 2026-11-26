@@ -181,15 +181,15 @@ function muestraFichero(abs, maxLineas) {
 }
 
 /**
- * foto del stage para repartir solo eso; null si no hay nada en stage fuera de lo excluido
+ * foto de HEAD y del stage antes de repartir, para no aplicar el plan si cambian mientras tanto
  * @param 'raiz
  * @param 'excluir
- * @returns hash del tree del indice o null
+ * @returns { cabeza, arbol } con arbol el tree del indice, o null si no hay nada en stage fuera de lo excluido
  */
-async function arbolStage(raiz, excluir) {
+async function foto(raiz, excluir) {
   if ((await git(raiz, ['ls-files', '-u'])).trim()) { throw new Error(t('There are unresolved conflicts: resolve them before splitting commits')); }
   const enStage = await git(raiz, ['diff', '--cached', '--name-only', ...especRutas(excluir)]);
-  return enStage.trim() ? (await git(raiz, ['write-tree'])).trim() : null;
+  return { cabeza: await cabeza(raiz), arbol: enStage.trim() ? (await git(raiz, ['write-tree'])).trim() : null };
 }
 
 /**
@@ -198,7 +198,7 @@ async function arbolStage(raiz, excluir) {
  * @param 'raiz
  * @param 'excluir
  * @param 'porFichero
- * @param 'arbol el de arbolStage, o null
+ * @param 'arbol el de foto, o null
  * @returns unidades
  */
 async function leerUnidades(raiz, excluir, porFichero, arbol) {
@@ -444,6 +444,7 @@ async function devolverAlStage(raiz, porId, usados, arbol, excluidos, log) {
     await hunksAlIndice(raiz, [h]).catch(() => fallos.push(describirUnidad(h)));
   }
   if (fallos.length) { log(t('Could not stage again what was left out: {0}', fallos.join('; '))); }
+  return fallos;
 }
 
 /**
@@ -452,15 +453,19 @@ async function devolverAlStage(raiz, porId, usados, arbol, excluidos, log) {
  * @param 'commits
  * @param 'porId unidades por id
  * @param 'log
- * @param 'arbol el de arbolStage: los ficheros salen de el y lo que no entre en ningun commit sigue en stage
- * @returns { inicio, final, creados } con los hashes para poder deshacer
+ * @param 'f la de foto: con arbol, los ficheros salen de el y lo que no entre en ningun commit sigue en stage
+ * @returns { inicio, final, creados, sinDevolver } con los hashes para poder deshacer y lo que no ha vuelto al stage
  */
-async function aplicarPlan(raiz, commits, porId, log, arbol) {
+async function aplicarPlan(raiz, commits, porId, log, f) {
+  const arbol = f && f.arbol;
   const inicio = await cabeza(raiz);
+  if (f && (inicio !== f.cabeza || (arbol && (await git(raiz, ['write-tree'])).trim() !== arbol))) {
+    throw new Error(t('HEAD or the staged changes have changed meanwhile: split again'));
+  }
   log(t('Initial HEAD {0}; to undo the new commits: {1}', inicio || t('(no commits yet)'), comoDeshacer(inicio)));
+  if (arbol) { log(t('Staged changes saved as {0}; to restore them: git read-tree {0}', arbol)); }
   // lo que estaba en stage pero no es ninguna unidad (claudeCommit.exclude) tambien vuelve al stage
   const deUnidades = new Set(Object.values(porId).map(u => u.ruta));
-  if (arbol && (await git(raiz, ['write-tree'])).trim() !== arbol) { throw new Error(t('The staged changes have changed meanwhile: split again')); }
   const excluidos = arbol ? (await git(raiz, ['diff', '--cached', '--name-only', '-z'])).split('\0').filter(r => r && !deUnidades.has(r)) : [];
   await git(raiz, ['reset', '-q']);
   const creados = [];
@@ -483,10 +488,9 @@ async function aplicarPlan(raiz, commits, porId, log, arbol) {
     const hechos = creados.length ? t(' {0} commits were created; to undo them: {1}.', creados.length, comoDeshacer(inicio)) : '';
     throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos);
   }
-  if (arbol && (excluidos.length || usados.size < Object.keys(porId).length)) {
-    await devolverAlStage(raiz, porId, usados, arbol, excluidos, log);
-  }
-  return { inicio, final: (await git(raiz, ['rev-parse', 'HEAD'])).trim(), creados };
+  const sinDevolver = arbol && (excluidos.length || usados.size < Object.keys(porId).length)
+    ? await devolverAlStage(raiz, porId, usados, arbol, excluidos, log) : [];
+  return { inicio, final: (await git(raiz, ['rev-parse', 'HEAD'])).trim(), creados, sinDevolver };
 }
 
 /**
@@ -506,6 +510,6 @@ async function deshacer(raiz, resultado) {
 }
 
 module.exports = {
-  Cancelado, setTraductor, contexto, enFusion, diffParaMensaje, arbolStage, leerUnidades, describirUnidad, promptMensaje, promptDivision,
+  Cancelado, setTraductor, contexto, enFusion, diffParaMensaje, foto, leerUnidades, describirUnidad, promptMensaje, promptDivision,
   llamarClaude, limpiarMensaje, interpretarPlan, construirParche, aplicarPlan, deshacer, desdeShimNpm,
 };
