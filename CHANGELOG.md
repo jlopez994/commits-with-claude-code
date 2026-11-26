@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Splitting only takes the staged changes when there are any, like the commit message does; whatever is left out stays staged.
+
 ## 0.1.1
 
 - Splitting works in a repository with no commits yet, and Undo leaves it without commits again.

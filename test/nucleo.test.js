@@ -9,6 +9,7 @@ const n = require('../nucleo');
 
 const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-commits-'));
 const vacio = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-commits-vacio-'));
+const conStage = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-commits-stage-'));
 const gitEn = dir => (...args) => cp.execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
 const git = gitEn(raiz);
 const escribir = (f, contenido) => fs.writeFileSync(path.join(raiz, f), contenido);
@@ -88,6 +89,49 @@ const iniciar = g => {
   assert.throws(() => gv('rev-parse', '--verify', '-q', 'HEAD'), 'deshacer el primer commit deja el repo sin commits');
   assert.strictEqual(gv('diff', '--cached', '--name-only'), 'x.txt', 'con los cambios en stage');
 
+  // con algo en stage solo se reparte el stage, con su version y no la del disco, y lo no commiteado sigue en stage
+  const gs = gitEn(conStage);
+  const escribirS = (f, contenido) => fs.writeFileSync(path.join(conStage, f), contenido);
+  iniciar(gs);
+  const lineas = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`);
+  escribirS('a.txt', lineas.join('\n') + '\n');
+  escribirS('f.txt', 'f\n');
+  escribirS('g.txt', 'g\n');
+  gs('add', '-A');
+  gs('commit', '-qm', 'initial');
+  lineas[1] = 'line 2 staged';
+  escribirS('a.txt', lineas.join('\n') + '\n');
+  escribirS('nuevo.txt', 'v1\n');
+  gs('add', 'a.txt', 'nuevo.txt');
+  gs('rm', '-q', 'g.txt');
+  lineas[34] = 'line 35 unstaged';
+  escribirS('a.txt', lineas.join('\n') + '\n');
+  escribirS('nuevo.txt', 'v2\n');
+  escribirS('f.txt', 'f changed\n');
+  escribirS('suelto.txt', 'untracked\n');
+
+  assert.strictEqual(await n.arbolStage(conStage, ['a.txt', 'nuevo.txt', 'g.txt']), null, 'lo excluido no cuenta como stage');
+  const arbol = await n.arbolStage(conStage, []);
+  assert.ok(arbol, 'hay stage');
+  const us = await n.leerUnidades(conStage, [], false, arbol);
+  assert.deepStrictEqual(us.map(u => [u.ruta, u.tipo]).sort(), [['a.txt', 'hunk'], ['g.txt', 'fichero'], ['nuevo.txt', 'fichero']],
+    'solo lo que esta en stage');
+  const ps = {};
+  us.forEach(u => { ps[u.id] = u; });
+  const idS = ruta => us.find(u => u.ruta === ruta).id;
+  const rs = await n.aplicarPlan(conStage, [{ mensaje: 'staged part', unidades: [idS('a.txt'), idS('nuevo.txt')] }], ps, () => undefined, arbol);
+  assert.strictEqual(gs('show', 'HEAD:nuevo.txt'), 'v1', 'la version del stage, no la del disco');
+  assert.ok(gs('show', 'HEAD:a.txt').includes('line 2 staged') && !gs('show', 'HEAD:a.txt').includes('line 35 unstaged'));
+  assert.strictEqual(gs('diff', '--cached', '--name-only'), 'g.txt', 'lo que no entra en ningun commit sigue en stage');
+  assert.strictEqual(fs.readFileSync(path.join(conStage, 'nuevo.txt'), 'utf8'), 'v2\n', 'el arbol de trabajo no se toca');
+  assert.deepStrictEqual(cp.execFileSync('git', ['status', '--short'], { cwd: conStage, encoding: 'utf8' }).trimEnd().split('\n').sort(), ['D  g.txt', ' M a.txt', ' M f.txt', ' M nuevo.txt', '?? suelto.txt'].sort());
+  await n.deshacer(conStage, rs);
+  assert.strictEqual(gs('write-tree'), arbol, 'deshacer deja el stage como estaba');
+  const hook = path.join(conStage, '.git', 'hooks', 'pre-commit');
+  fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  await assert.rejects(n.aplicarPlan(conStage, [{ mensaje: 'x', unidades: [idS('a.txt')] }], ps, () => undefined, arbol), /Commit 1/);
+  assert.strictEqual(gs('write-tree'), arbol, 'si un commit falla el stage vuelve a estar como estaba');
+
   // en Windows el claude.cmd de npm se sustituye por su destino, sin shell
   const shim = l => `@ECHO off\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n)\r\n${l} %*\r\n`;
   assert.deepStrictEqual(n.desdeShimNpm('C:\\npm\\claude.cmd', shim('"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js"')),
@@ -99,4 +143,4 @@ const iniciar = g => {
 })().catch(e => {
   console.error(e);
   process.exitCode = 1;
-}).finally(() => [raiz, vacio].forEach(d => fs.rmSync(d, { recursive: true, force: true })));
+}).finally(() => [raiz, vacio, conStage].forEach(d => fs.rmSync(d, { recursive: true, force: true })));

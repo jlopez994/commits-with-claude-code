@@ -112,7 +112,8 @@ async function dividir(arg) {
   const preparado = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: t('Claude: splitting changes into commits'), cancellable: true },
     async (progreso, token) => {
-      const unidades = await n.leerUnidades(raiz, a.excluir, a.porFichero);
+      const arbol = await n.arbolStage(raiz, a.excluir);
+      const unidades = await n.leerUnidades(raiz, a.excluir, a.porFichero, arbol);
       if (!unidades.length) { return undefined; }
       progreso.report({ message: t('{0} chunks', unidades.length) });
       const ctx = await n.contexto(raiz);
@@ -120,14 +121,14 @@ async function dividir(arg) {
         ruta: a.ruta, modelo: a.modeloDivision, cwd: raiz, entrada: n.promptDivision(ctx, unidades, a.extra, a.porFichero),
         signal: senalDe(token), timeoutMs: a.timeoutMs,
       });
-      return { unidades, ctx, plan: n.interpretarPlan(respuesta, unidades) };
+      return { arbol, unidades, ctx, plan: n.interpretarPlan(respuesta, unidades) };
     });
   if (!preparado) {
     vscode.window.showInformationMessage(t('No changes to split'));
     return;
   }
 
-  const { unidades, ctx, plan } = preparado;
+  const { arbol, unidades, ctx, plan } = preparado;
   const porId = {};
   unidades.forEach(u => { porId[u.id] = u; });
   volcarPlan(plan, porId, ctx);
@@ -146,7 +147,9 @@ async function dividir(arg) {
       plan.aviso && t('WARNING: {0}', plan.aviso),
       elegidos.map((c, i) => `${i + 1}. ${c.mensaje}\n    ${ficherosDe(c, porId)}`).join('\n'),
       plan.sinCommit.length && t('{0} chunks stay uncommitted (details in the "Claude commits" output).', plan.sinCommit.length),
-      t('The index is rebuilt (anything staged is split again); the working tree is not touched.'),
+      arbol
+        ? t('Only the staged changes are split; anything not staged stays as it is.')
+        : t('The index is rebuilt (anything staged is split again); the working tree is not touched.'),
     ].filter(Boolean).join('\n\n');
     const crear = t('Create commits');
     const ok = await vscode.window.showWarningMessage(t('Create {0} commits on {1}?', elegidos.length, ctx.rama),
@@ -156,7 +159,7 @@ async function dividir(arg) {
 
   log(t('Creating {0} commits on {1}', elegidos.length, ctx.rama));
   const resultado = await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl },
-    () => n.aplicarPlan(raiz, elegidos, porId, log));
+    () => n.aplicarPlan(raiz, elegidos, porId, log, arbol));
   await repo.status();
   const ver = t('Show output');
   const deshacer = t('Undo');
