@@ -102,7 +102,8 @@ const iniciar = g => {
   lineas[1] = 'line 2 staged';
   escribirS('a.txt', lineas.join('\n') + '\n');
   escribirS('nuevo.txt', 'v1\n');
-  gs('add', 'a.txt', 'nuevo.txt');
+  escribirS('local.env', 'x\n');
+  gs('add', 'a.txt', 'nuevo.txt', 'local.env');
   gs('rm', '-q', 'g.txt');
   lineas[34] = 'line 35 unstaged';
   escribirS('a.txt', lineas.join('\n') + '\n');
@@ -110,10 +111,18 @@ const iniciar = g => {
   escribirS('f.txt', 'f changed\n');
   escribirS('suelto.txt', 'untracked\n');
 
-  assert.strictEqual(await n.arbolStage(conStage, ['a.txt', 'nuevo.txt', 'g.txt']), null, 'lo excluido no cuenta como stage');
+  assert.strictEqual(await n.arbolStage(conStage, ['a.txt', 'nuevo.txt', 'g.txt', 'local.env']), null, 'lo excluido no cuenta como stage');
   const arbol = await n.arbolStage(conStage, []);
   assert.ok(arbol, 'hay stage');
-  const us = await n.leerUnidades(conStage, [], false, arbol);
+  const enterosS = await n.leerUnidades(conStage, ['local.env'], true, arbol);
+  const pe = {};
+  enterosS.forEach(u => { pe[u.id] = u; });
+  const re = await n.aplicarPlan(conStage, [{ mensaje: 'all staged', unidades: enterosS.map(u => u.id) }], pe, () => undefined, arbol);
+  assert.strictEqual(gs('show', 'HEAD:a.txt').includes('line 35 unstaged'), false, 'por fichero tambien sale la version del stage');
+  assert.strictEqual(gs('diff', '--cached', '--name-only'), 'local.env', 'lo excluido que estaba en stage sigue en stage');
+  await n.deshacer(conStage, re);
+  assert.strictEqual(gs('write-tree'), arbol);
+  const us = await n.leerUnidades(conStage, ['local.env'], false, arbol);
   assert.deepStrictEqual(us.map(u => [u.ruta, u.tipo]).sort(), [['a.txt', 'hunk'], ['g.txt', 'fichero'], ['nuevo.txt', 'fichero']],
     'solo lo que esta en stage');
   const ps = {};
@@ -122,11 +131,14 @@ const iniciar = g => {
   const rs = await n.aplicarPlan(conStage, [{ mensaje: 'staged part', unidades: [idS('a.txt'), idS('nuevo.txt')] }], ps, () => undefined, arbol);
   assert.strictEqual(gs('show', 'HEAD:nuevo.txt'), 'v1', 'la version del stage, no la del disco');
   assert.ok(gs('show', 'HEAD:a.txt').includes('line 2 staged') && !gs('show', 'HEAD:a.txt').includes('line 35 unstaged'));
-  assert.strictEqual(gs('diff', '--cached', '--name-only'), 'g.txt', 'lo que no entra en ningun commit sigue en stage');
+  assert.strictEqual(gs('diff', '--cached', '--name-only').split('\n').sort().join(','), 'g.txt,local.env', 'lo que no entra en ningun commit sigue en stage');
   assert.strictEqual(fs.readFileSync(path.join(conStage, 'nuevo.txt'), 'utf8'), 'v2\n', 'el arbol de trabajo no se toca');
-  assert.deepStrictEqual(cp.execFileSync('git', ['status', '--short'], { cwd: conStage, encoding: 'utf8' }).trimEnd().split('\n').sort(), ['D  g.txt', ' M a.txt', ' M f.txt', ' M nuevo.txt', '?? suelto.txt'].sort());
+  assert.deepStrictEqual(cp.execFileSync('git', ['status', '--short'], { cwd: conStage, encoding: 'utf8' }).trimEnd().split('\n').sort(), ['D  g.txt', 'A  local.env', ' M a.txt', ' M f.txt', ' M nuevo.txt', '?? suelto.txt'].sort());
   await n.deshacer(conStage, rs);
   assert.strictEqual(gs('write-tree'), arbol, 'deshacer deja el stage como estaba');
+  gs('add', 'f.txt');
+  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, arbol), /changed meanwhile/, 'si el stage cambia tras la foto no se toca');
+  gs('reset', '-q', 'f.txt');
   const hook = path.join(conStage, '.git', 'hooks', 'pre-commit');
   fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   await assert.rejects(n.aplicarPlan(conStage, [{ mensaje: 'x', unidades: [idS('a.txt')] }], ps, () => undefined, arbol), /Commit 1/);

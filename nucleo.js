@@ -187,6 +187,7 @@ function muestraFichero(abs, maxLineas) {
  * @returns hash del tree del indice o null
  */
 async function arbolStage(raiz, excluir) {
+  if ((await git(raiz, ['ls-files', '-u'])).trim()) { throw new Error(t('There are unresolved conflicts: resolve them before splitting commits')); }
   const enStage = await git(raiz, ['diff', '--cached', '--name-only', ...especRutas(excluir)]);
   return enStage.trim() ? (await git(raiz, ['write-tree'])).trim() : null;
 }
@@ -412,28 +413,37 @@ function construirParche(hunks) {
   return parche;
 }
 
-// pasa al indice unas unidades: los hunks por parche y los ficheros desde arbol o, sin el, desde el disco
+const literales = rutas => rutas.map(r => ':(literal)' + r);
+
+// ficheros enteros al indice: desde arbol o, sin el, desde el disco
+function ficherosAlIndice(raiz, rutas, arbol) {
+  return git(raiz, arbol ? ['reset', '-q', arbol, '--', ...literales(rutas)] : ['add', '-A', '--', ...literales(rutas)]);
+}
+
+// git apply encuentra cada hunk por su contexto aunque los commits anteriores hayan movido las lineas
+function hunksAlIndice(raiz, hunks) {
+  return git(raiz, ['apply', '--cached', '--whitespace=nowarn', '-'], { input: construirParche(hunks), inputEncoding: 'latin1' });
+}
+
 async function alIndice(raiz, unidades, arbol) {
   const hunks = unidades.filter(u => u.tipo === 'hunk');
   const rutas = unidades.filter(u => u.tipo === 'fichero').map(u => u.ruta);
-  // git apply encuentra cada hunk por su contexto aunque los commits anteriores hayan movido las lineas
-  if (hunks.length) {
-    await git(raiz, ['apply', '--cached', '--whitespace=nowarn', '-'], { input: construirParche(hunks), inputEncoding: 'latin1' });
-  }
-  if (rutas.length) {
-    await git(raiz, arbol ? ['restore', '--staged', '--source=' + arbol, '--', ...rutas] : ['add', '-A', '--', ...rutas]);
-  }
+  if (hunks.length) { await hunksAlIndice(raiz, hunks); }
+  if (rutas.length) { await ficherosAlIndice(raiz, rutas, arbol); }
 }
 
-// lo del stage que no ha entrado en ningun commit vuelve al stage; por unidades y no con read-tree, para no deshacer lo que un hook haya cambiado
-async function devolverAlStage(raiz, porId, usados, arbol, log) {
+// lo del stage que no ha entrado en ningun commit vuelve al stage por unidades, no con read-tree, para no deshacer lo que un hook
+// haya cambiado; cada hunk por separado porque uno que ya no encaja no debe impedir devolver los demas
+async function devolverAlStage(raiz, porId, usados, arbol, excluidos, log) {
   const resto = Object.values(porId).filter(u => !usados.has(u.id));
-  try {
-    await git(raiz, ['reset', '-q']);
-    await alIndice(raiz, resto, arbol);
-  } catch (e) {
-    log(t('Could not stage again what was left out: {0}', e.message));
+  const rutas = resto.filter(u => u.tipo === 'fichero').map(u => u.ruta).concat(excluidos);
+  const fallos = [];
+  await git(raiz, ['reset', '-q']).catch(e => fallos.push(e.message));
+  if (rutas.length) { await ficherosAlIndice(raiz, rutas, arbol).catch(e => fallos.push(e.message)); }
+  for (const h of resto.filter(u => u.tipo === 'hunk')) {
+    await hunksAlIndice(raiz, [h]).catch(() => fallos.push(describirUnidad(h)));
   }
+  if (fallos.length) { log(t('Could not stage again what was left out: {0}', fallos.join('; '))); }
 }
 
 /**
@@ -448,6 +458,10 @@ async function devolverAlStage(raiz, porId, usados, arbol, log) {
 async function aplicarPlan(raiz, commits, porId, log, arbol) {
   const inicio = await cabeza(raiz);
   log(t('Initial HEAD {0}; to undo the new commits: {1}', inicio || t('(no commits yet)'), comoDeshacer(inicio)));
+  // lo que estaba en stage pero no es ninguna unidad (claudeCommit.exclude) tambien vuelve al stage
+  const deUnidades = new Set(Object.values(porId).map(u => u.ruta));
+  if (arbol && (await git(raiz, ['write-tree'])).trim() !== arbol) { throw new Error(t('The staged changes have changed meanwhile: split again')); }
+  const excluidos = arbol ? (await git(raiz, ['diff', '--cached', '--name-only', '-z'])).split('\0').filter(r => r && !deUnidades.has(r)) : [];
   await git(raiz, ['reset', '-q']);
   const creados = [];
   const usados = new Set();
@@ -462,14 +476,16 @@ async function aplicarPlan(raiz, commits, porId, log, arbol) {
     }
   } catch (e) {
     if (arbol) {
-      await devolverAlStage(raiz, porId, usados, arbol, log);
+      await devolverAlStage(raiz, porId, usados, arbol, excluidos, log);
     } else {
       await git(raiz, ['reset', '-q']).catch(() => undefined);
     }
     const hechos = creados.length ? t(' {0} commits were created; to undo them: {1}.', creados.length, comoDeshacer(inicio)) : '';
     throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos);
   }
-  if (arbol && usados.size < Object.keys(porId).length) { await devolverAlStage(raiz, porId, usados, arbol, log); }
+  if (arbol && (excluidos.length || usados.size < Object.keys(porId).length)) {
+    await devolverAlStage(raiz, porId, usados, arbol, excluidos, log);
+  }
   return { inicio, final: (await git(raiz, ['rev-parse', 'HEAD'])).trim(), creados };
 }
 
