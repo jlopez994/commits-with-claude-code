@@ -140,11 +140,17 @@ const iniciar = g => {
   gs('add', 'f.txt');
   await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, fs0), /changed meanwhile/, 'si el stage cambia tras la foto no se toca');
   gs('reset', '-q', 'f.txt');
-  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, { cabeza: 'otro', arbol }), /changed meanwhile/, 'ni si se mueve HEAD');
+  await assert.rejects(n.aplicarPlan(conStage, [], ps, () => undefined, { cabeza: 'otro', indice: arbol, arbol }), /changed meanwhile/, 'ni si se mueve HEAD');
   const hook = path.join(conStage, '.git', 'hooks', 'pre-commit');
   fs.writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   await assert.rejects(n.aplicarPlan(conStage, [{ mensaje: 'x', unidades: [idS('a.txt')] }], ps, () => undefined, fs0), /Commit 1/);
   assert.strictEqual(gs('write-tree'), arbol, 'si un commit falla el stage vuelve a estar como estaba');
+  fs.unlinkSync(hook);
+  gs('reset', '-q');
+  const sinStage = await n.foto(conStage, []);
+  assert.strictEqual(sinStage.arbol, null);
+  gs('add', 'f.txt');
+  await assert.rejects(n.aplicarPlan(conStage, [], {}, () => undefined, sinStage), /changed meanwhile/, 'ni si se pone algo en stage tras una foto sin stage');
 
   // en Windows el claude.cmd de npm se sustituye por su destino, sin shell
   const shim = l => `@ECHO off\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n)\r\n${l} %*\r\n`;

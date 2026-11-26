@@ -184,12 +184,13 @@ function muestraFichero(abs, maxLineas) {
  * foto de HEAD y del stage antes de repartir, para no aplicar el plan si cambian mientras tanto
  * @param 'raiz
  * @param 'excluir
- * @returns { cabeza, arbol } con arbol el tree del indice, o null si no hay nada en stage fuera de lo excluido
+ * @returns { cabeza, indice, arbol } con indice el tree del indice y arbol ese mismo, o null si no hay nada en stage fuera de lo excluido
  */
 async function foto(raiz, excluir) {
   if ((await git(raiz, ['ls-files', '-u'])).trim()) { throw new Error(t('There are unresolved conflicts: resolve them before splitting commits')); }
   const enStage = await git(raiz, ['diff', '--cached', '--name-only', ...especRutas(excluir)]);
-  return { cabeza: await cabeza(raiz), arbol: enStage.trim() ? (await git(raiz, ['write-tree'])).trim() : null };
+  const indice = (await git(raiz, ['write-tree'])).trim();
+  return { cabeza: await cabeza(raiz), indice, arbol: enStage.trim() ? indice : null };
 }
 
 /**
@@ -459,7 +460,7 @@ async function devolverAlStage(raiz, porId, usados, arbol, excluidos, log) {
 async function aplicarPlan(raiz, commits, porId, log, f) {
   const arbol = f && f.arbol;
   const inicio = await cabeza(raiz);
-  if (f && (inicio !== f.cabeza || (arbol && (await git(raiz, ['write-tree'])).trim() !== arbol))) {
+  if (f && (inicio !== f.cabeza || (await git(raiz, ['write-tree'])).trim() !== f.indice)) {
     throw new Error(t('HEAD or the staged changes have changed meanwhile: split again'));
   }
   log(t('Initial HEAD {0}; to undo the new commits: {1}', inicio || t('(no commits yet)'), comoDeshacer(inicio)));
@@ -480,13 +481,15 @@ async function aplicarPlan(raiz, commits, porId, log, f) {
       log(`  ${hash} ${c.mensaje}`);
     }
   } catch (e) {
+    let perdido = '';
     if (arbol) {
-      await devolverAlStage(raiz, porId, usados, arbol, excluidos, log);
+      const sin = await devolverAlStage(raiz, porId, usados, arbol, excluidos, log);
+      if (sin.length) { perdido = t(' Part of the staged changes could not be staged again; to restore them: git read-tree {0}.', arbol); }
     } else {
       await git(raiz, ['reset', '-q']).catch(() => undefined);
     }
     const hechos = creados.length ? t(' {0} commits were created; to undo them: {1}.', creados.length, comoDeshacer(inicio)) : '';
-    throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos);
+    throw new Error(t('Commit {0} failed: {1}.', creados.length + 1, e.message) + hechos + perdido);
   }
   const sinDevolver = arbol && (excluidos.length || usados.size < Object.keys(porId).length)
     ? await devolverAlStage(raiz, porId, usados, arbol, excluidos, log) : [];

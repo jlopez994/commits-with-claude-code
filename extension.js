@@ -163,11 +163,11 @@ async function dividir(arg) {
   await repo.status();
   const ver = t('Show output');
   const deshacer = t('Undo');
-  const r = await vscode.window.showInformationMessage(t('{0} commits created on {1}', resultado.creados.length, ctx.rama), ver, deshacer);
   if (resultado.sinDevolver.length) {
     vscode.window.showWarningMessage(t('Some staged changes could not be staged again (details in the "Claude commits" output).'), ver)
       .then(w => w === ver && salida.show());
   }
+  const r = await vscode.window.showInformationMessage(t('{0} commits created on {1}', resultado.creados.length, ctx.rama), ver, deshacer);
   if (r === ver) { salida.show(); }
   if (r === deshacer) {
     await n.deshacer(raiz, resultado);
