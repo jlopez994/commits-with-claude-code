@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Splitting only takes the staged changes when there are any, like the commit message does; whatever is left out stays staged.
 
